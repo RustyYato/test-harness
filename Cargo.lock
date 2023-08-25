@@ -108,6 +108,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "diffs"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff116c9781d74b71b9b8958281309dd2faaeabad2f0a3df27e50bd79ce5dc805"
+
+[[package]]
 name = "either"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -304,6 +310,7 @@ version = "0.1.0"
 dependencies = [
  "backtrace",
  "bstr",
+ "diffs",
  "linkme",
  "owo-colors",
  "rayon",

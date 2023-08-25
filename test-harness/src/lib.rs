@@ -4,7 +4,7 @@ use std::{
     collections::{BinaryHeap, LinkedList},
     ffi::OsStr,
     fmt::Display,
-    io,
+    io::{self, Write},
     marker::PhantomData,
     panic::{RefUnwindSafe, UnwindSafe},
     path::{Path, PathBuf},
@@ -12,10 +12,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
-use rayon::{
-    iter::plumbing,
-    prelude::{IntoParallelIterator, ParallelIterator},
-};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 use backtrace::Backtrace;
 
@@ -565,6 +562,21 @@ pub fn run_tests(opts: Opts) -> bool {
                     corpus.name().fg::<colors::changed>(),
                     item.name.fg::<colors::changed>()
                 );
+                println!("{:->120}", "");
+                diffs::patience::diff(
+                    &mut DiffPrinter {
+                        expected: &expected,
+                        output: &output,
+                    },
+                    expected.as_bytes(),
+                    0,
+                    expected.len(),
+                    output.as_bytes(),
+                    0,
+                    output.len(),
+                )
+                .unwrap_or_else(|inf| match inf {});
+                println!("{:=>120}", "");
             }
             TestResult::Fail { expected: _, error } => {
                 println!(
@@ -718,5 +730,37 @@ impl PartialOrd for HeapItem {
 impl Ord for HeapItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.item.cmp(&other.item)
+    }
+}
+
+struct DiffPrinter<'a> {
+    expected: &'a str,
+    output: &'a str,
+}
+
+impl diffs::Diff for DiffPrinter<'_> {
+    type Error = core::convert::Infallible;
+
+    fn equal(&mut self, old: usize, _new: usize, len: usize) -> Result<(), Self::Error> {
+        use owo_colors::OwoColorize;
+        print!("{}", (&self.expected[old..][..len]).bright_black());
+        Ok(())
+    }
+
+    fn delete(&mut self, old: usize, len: usize, _new: usize) -> Result<(), Self::Error> {
+        use owo_colors::OwoColorize;
+        print!("{}", (&self.expected[old..][..len]).red());
+        Ok(())
+    }
+
+    fn insert(&mut self, _old: usize, new: usize, new_len: usize) -> Result<(), Self::Error> {
+        use owo_colors::OwoColorize;
+        print!("{}", (&self.output[new..][..new_len]).green());
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), Self::Error> {
+        std::io::stdout().flush().unwrap();
+        Ok(())
     }
 }
