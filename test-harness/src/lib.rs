@@ -16,7 +16,7 @@ use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 use backtrace::Backtrace;
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct Opts {
     save_new: bool,
     save_changed: bool,
@@ -401,7 +401,13 @@ thread_local! {
     static PANIC_INFO: Cell<(String, Option<Backtrace>)> = Cell::new((String::new(), None));
 }
 
-pub fn run_tests(opts: Opts) {
+pub fn main() -> ! {
+    let has_failures = run_tests(Opts::from_env());
+    std::process::exit(has_failures as i32)
+}
+
+#[must_use]
+pub fn run_tests(opts: Opts) -> bool {
     let mut storage = TestStorage {
         current_index: 0,
         tests: Vec::new(),
@@ -648,6 +654,8 @@ pub fn run_tests(opts: Opts) {
     }
 
     counts.print();
+
+    counts.failed != 0 || counts.no_run != 0 || counts.panicked != 0
 }
 
 struct Item {

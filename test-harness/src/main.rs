@@ -3,8 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn main() {
-    test_harness::run_tests(test_harness::Opts::from_env());
+fn main() -> ! {
+    test_harness::main()
 }
 
 #[linkme::distributed_slice(test_harness::TEST_CORPUSES)]
