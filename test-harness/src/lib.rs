@@ -749,13 +749,13 @@ impl diffs::Diff for DiffPrinter<'_> {
 
     fn delete(&mut self, old: usize, len: usize, _new: usize) -> Result<(), Self::Error> {
         use owo_colors::OwoColorize;
-        print!("{}", (&self.expected[old..][..len]).red());
+        print!("{}", (&self.expected[old..][..len]).red().strikethrough());
         Ok(())
     }
 
     fn insert(&mut self, _old: usize, new: usize, new_len: usize) -> Result<(), Self::Error> {
         use owo_colors::OwoColorize;
-        print!("{}", (&self.output[new..][..new_len]).green());
+        print!("{}", (&self.output[new..][..new_len]).green().underline());
         Ok(())
     }
 
