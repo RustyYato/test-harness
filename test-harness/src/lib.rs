@@ -12,7 +12,10 @@ use std::{
 };
 
 use bstr::ByteSlice;
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use rayon::{
+    iter::plumbing,
+    prelude::{IntoParallelIterator, ParallelIterator},
+};
 
 use backtrace::Backtrace;
 
@@ -563,12 +566,13 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::changed>()
                 );
             }
-            TestResult::Fail { expected, error } => {
+            TestResult::Fail { expected: _, error } => {
                 println!(
                     "[{}] {} failed",
                     corpus.name().fg::<colors::failed>(),
                     item.name.fg::<colors::failed>()
                 );
+                println!("{error}");
             }
             TestResult::CouldNotRun { error } => {
                 println!(
@@ -576,6 +580,7 @@ pub fn run_tests(opts: Opts) -> bool {
                     corpus.name().fg::<colors::no_run>(),
                     item.name.fg::<colors::no_run>()
                 );
+                println!("{error}");
             }
             TestResult::New { output } => {
                 println!(
@@ -583,6 +588,10 @@ pub fn run_tests(opts: Opts) -> bool {
                     corpus.name().fg::<colors::found>(),
                     item.name.fg::<colors::found>()
                 );
+
+                println!("{:->120}", "");
+                println!("{output}");
+                println!("{:=>120}", "");
             }
             TestResult::Skip => {
                 println!(
