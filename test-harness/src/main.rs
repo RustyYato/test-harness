@@ -7,9 +7,11 @@ fn main() -> ! {
     test_harness::main()
 }
 
-#[linkme::distributed_slice(test_harness::TEST_CORPUSES)]
-static MY_TEST: &dyn test_harness::TestCorpus =
-    &test_harness::TestDirectory::new("my_test", "tests/ui/pass/", MyRunner);
+test_harness::test_corpus!(test_harness::TestDirectory::new(
+    "my_test",
+    "tests/ui/pass/",
+    MyRunner
+));
 
 #[derive(Clone)]
 pub struct MyRunner;
