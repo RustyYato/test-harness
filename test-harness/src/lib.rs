@@ -688,6 +688,18 @@ pub fn run_tests(opts: Opts) -> bool {
 
     counts.print();
 
+    if counts.found != 0 {
+        println!("set the TEST_SAVE=1 environment variable to save all newly found tests")
+    }
+
+    if counts.changed != 0 {
+        println!("set the TEST_REGEN=1 environment variable to save all changed tests")
+    }
+
+    if counts.found != 0 || counts.changed != 0 {
+        println!()
+    }
+
     counts.failed != 0 || counts.no_run != 0 || counts.panicked != 0
 }
 
