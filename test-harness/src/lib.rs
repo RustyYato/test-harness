@@ -283,6 +283,16 @@ pub struct TestDirectory<T: PathTestRunner> {
     test_runner: T,
 }
 
+pub fn expected_in_directory(path: &Path, directory: &str) -> PathBuf {
+    if let Some(parent) = path.parent() {
+        let mut new_path = parent.join(directory);
+        new_path.push(path.file_name().unwrap_or(OsStr::new("..")));
+        new_path
+    } else {
+        Path::new(directory).join(path)
+    }
+}
+
 impl<T: PathTestRunner> TestDirectory<T> {
     pub const fn new(name: &'static str, path: &'static str, runner: T) -> Self {
         Self {
