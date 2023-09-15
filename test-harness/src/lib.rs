@@ -16,13 +16,13 @@ use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 use backtrace::Backtrace;
 
-pub use linkme;
+pub use linkme::distributed_slice;
 
 #[macro_export]
 macro_rules! test_corpus {
     ($corpus:expr) => {
         const _: () = {
-            #[$crate::linkme::distributed_slice($crate::TEST_CORPUSES)]
+            #[$crate::distributed_slice($crate::TEST_CORPUSES)]
             static __TEST_CORPUS: &dyn $crate::TestCorpus = &$corpus;
         };
     };
