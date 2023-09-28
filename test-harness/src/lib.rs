@@ -269,9 +269,25 @@ pub trait TestCase: BoxedTestCase {
     fn run(self, corpus: &dyn TestCorpus, opts: &Opts) -> TestResult;
 }
 
+pub fn is_hidden_dir(path: &Path) -> bool {
+    match path.file_name() {
+        Some(x) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::ffi::OsStrExt;
+                return x.as_bytes().starts_with(b".");
+            }
+
+            #[allow(unreachable_code)]
+            false
+        }
+        None => false,
+    }
+}
+
 pub trait PathTestRunner: 'static + Send + Sync + RefUnwindSafe {
     fn should_skip_directory(&self, path: &Path) -> bool {
-        false
+        is_hidden_dir(path)
     }
 
     fn is_test_path(&self, path: &Path) -> bool;

@@ -18,7 +18,7 @@ pub struct MyRunner;
 
 impl test_harness::PathTestRunner for MyRunner {
     fn should_skip_directory(&self, path: &Path) -> bool {
-        path.file_name() == Some(OsStr::new("expected"))
+        test_harness::is_hidden_dir(path) || path.file_name() == Some(OsStr::new("expected"))
     }
 
     fn is_test_path(&self, path: &Path) -> bool {
