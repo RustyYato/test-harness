@@ -17,6 +17,10 @@ test_harness::test_corpus!(test_harness::TestDirectory::new(
 pub struct MyRunner;
 
 impl test_harness::PathTestRunner for MyRunner {
+    fn should_skip_directory(&self, path: &Path) -> bool {
+        path.file_name() == Some(OsStr::new("expected"))
+    }
+
     fn is_test_path(&self, path: &Path) -> bool {
         path.extension() == Some(OsStr::new("rs"))
     }

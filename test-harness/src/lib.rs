@@ -270,6 +270,10 @@ pub trait TestCase: BoxedTestCase {
 }
 
 pub trait PathTestRunner: 'static + Send + Sync + RefUnwindSafe {
+    fn should_skip_directory(&self, path: &Path) -> bool {
+        false
+    }
+
     fn is_test_path(&self, path: &Path) -> bool;
 
     fn expected_output_path(&self, path: &Path) -> PathBuf;
@@ -387,10 +391,19 @@ impl<T: PathTestRunner> TestCorpus for TestDirectory<T> {
             }
         }
 
-        for entry in walkdir::WalkDir::new(self.path) {
+        let mut walkdir = walkdir::WalkDir::new(self.path)
+            .contents_first(false)
+            .into_iter();
+
+        while let Some(entry) = walkdir.next() {
             let Ok(entry) = entry else  {
                 continue;
             };
+
+            if entry.file_type().is_dir() && self.test_runner.should_skip_directory(entry.path()) {
+                walkdir.skip_current_dir();
+                continue;
+            }
 
             if !self.test_runner.is_test_path(entry.path()) {
                 continue;
