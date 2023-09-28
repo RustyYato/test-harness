@@ -346,8 +346,49 @@ impl<T: PathTestRunner> TestCorpus for TestDirectory<T> {
 
                 let expected_path = test_corpus.test_runner.expected_output_path(&self.path);
 
+                let expected_unique_suffix = {
+                    let mut expected = expected_path.components();
+                    let mut original = self.path.components();
+
+                    loop {
+                        let mut new_expected = expected.clone();
+                        let mut new_original = original.clone();
+
+                        match (new_expected.next(), new_original.next()) {
+                            (Some(e), Some(o)) if e == o => {}
+                            _ => break,
+                        };
+
+                        expected = new_expected;
+                        original = new_original;
+                    }
+
+                    expected.as_path()
+                };
+
+                let expected_ptr = {
+                    let mut expected = expected_path.components();
+                    expected_unique_suffix.components().for_each(|_| {
+                        expected.next_back();
+                    });
+                    expected.as_path()
+                };
+
                 assert!(
-                    !test_corpus.test_runner.is_test_path(&expected_path),
+                    !test_corpus.test_runner.is_test_path(&expected_path)
+                        || (expected_path
+                            .ancestors()
+                            .try_fold((), |(), path| {
+                                if core::ptr::eq(path, expected_ptr)
+                                    || test_corpus.test_runner.should_skip_directory(path)
+                                {
+                                    Err(true)
+                                } else {
+                                    Ok(())
+                                }
+                            })
+                            .err()
+                            .unwrap_or(false)),
                     "expected path may not match a test path: {}",
                     expected_path.display()
                 );
