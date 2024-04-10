@@ -28,11 +28,12 @@ macro_rules! test_corpus {
     };
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct Opts {
     save_new: bool,
     save_changed: bool,
     backtrace_style: BacktraceStyle,
+    filter: Option<String>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -47,8 +48,10 @@ impl Opts {
     pub fn from_env() -> Self {
         let bt = std::env::var_os("RUST_BACKTRACE");
         let bt = bt.as_deref();
+        let filter = std::env::args().nth(1);
 
         Self {
+            filter,
             save_new: std::env::var_os("TEST_SAVE").is_some(),
             save_changed: std::env::var_os("TEST_REGEN").is_some(),
             backtrace_style: if bt == Some(OsStr::new("full")) {
@@ -344,6 +347,18 @@ impl<T: PathTestRunner> TestCorpus for TestDirectory<T> {
                     .downcast::<TestDirectory<T>>()
                     .expect("Invalid test corpus for test case");
 
+                if let Some(filter) = opts.filter.as_deref() {
+                    if !self
+                        .path
+                        .as_os_str()
+                        .to_str()
+                        .expect("All file paths must be utf-8")
+                        .contains(filter)
+                    {
+                        return TestResult::Skip;
+                    }
+                }
+
                 let expected_path = test_corpus.test_runner.expected_output_path(&self.path);
 
                 let is_skipped = || {
@@ -451,12 +466,16 @@ impl<T: PathTestRunner> TestCorpus for TestDirectory<T> {
             }
         }
 
+        if !std::path::Path::new(self.path).exists() {
+            panic!("Test path does not exist: {}", self.path)
+        }
+
         let mut walkdir = walkdir::WalkDir::new(self.path)
             .contents_first(false)
             .into_iter();
 
         while let Some(entry) = walkdir.next() {
-            let Ok(entry) = entry else  {
+            let Ok(entry) = entry else {
                 continue;
             };
 
@@ -493,7 +512,7 @@ impl TestStorage {
 }
 
 thread_local! {
-    static PANIC_INFO: Cell<(String, Option<Backtrace>)> = Cell::new((String::new(), None));
+    static PANIC_INFO: Cell<(String, Option<Backtrace>)> = const { Cell::new((String::new(), None)) };
 }
 
 pub fn main() -> ! {
@@ -722,13 +741,9 @@ pub fn run_tests(opts: Opts) -> bool {
                         let mut frames = Vec::new();
                         for frame in backtrace.frames() {
                             if !found_start {
-                                let [sym] = frame.symbols() else {
-                                    continue
-                                };
+                                let [sym] = frame.symbols() else { continue };
 
-                                let Some(name) = sym.name() else {
-                                    continue
-                                };
+                                let Some(name) = sym.name() else { continue };
 
                                 if name.as_bytes() == b"rust_begin_unwind" {
                                     found_start = true;
@@ -736,13 +751,9 @@ pub fn run_tests(opts: Opts) -> bool {
                             } else {
                                 frames.push(frame.clone());
 
-                                let [sym] = frame.symbols() else {
-                                    continue
-                                };
+                                let [sym] = frame.symbols() else { continue };
 
-                                let Some(name) = sym.name() else {
-                                    continue
-                                };
+                                let Some(name) = sym.name() else { continue };
 
                                 if name.as_bytes().contains_str("test_harness_run_test") {
                                     break;
