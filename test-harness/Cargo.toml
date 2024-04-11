@@ -13,3 +13,6 @@ owo-colors = '3'
 backtrace = '0.3'
 bstr = '1'
 diffs = '0.5'
+
+serde = "1"
+float-pretty-print = "0.1"

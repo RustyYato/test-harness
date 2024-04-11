@@ -18,6 +18,10 @@ use backtrace::Backtrace;
 
 pub use linkme::distributed_slice;
 
+mod serializer;
+
+pub use serializer::to_string;
+
 #[macro_export]
 macro_rules! test_corpus {
     ($corpus:expr) => {
@@ -48,7 +52,20 @@ impl Opts {
     pub fn from_env() -> Self {
         let bt = std::env::var_os("RUST_BACKTRACE");
         let bt = bt.as_deref();
-        let filter = std::env::args().nth(1);
+        let mut args = std::env::args();
+        let mut filter = None;
+
+        args.next();
+
+        while let Some(arg) = args.next() {
+            if arg == "--color" {
+                args.next();
+                continue;
+            }
+
+            filter = Some(arg);
+            break;
+        }
 
         Self {
             filter,
