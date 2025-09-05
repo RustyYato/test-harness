@@ -4,7 +4,7 @@ use std::{
     collections::{BinaryHeap, LinkedList},
     ffi::OsStr,
     fmt::Display,
-    io::{self, Write},
+    io,
     marker::PhantomData,
     panic::{RefUnwindSafe, UnwindSafe},
     path::{Path, PathBuf},
@@ -291,17 +291,12 @@ pub trait TestCase: BoxedTestCase {
 
 pub fn is_hidden_dir(path: &Path) -> bool {
     match path.file_name() {
+        #[cfg(unix)]
         Some(x) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::ffi::OsStrExt;
-                return x.as_bytes().starts_with(b".");
-            }
-
-            #[allow(unreachable_code)]
-            false
+            use std::os::unix::ffi::OsStrExt;
+            return x.as_bytes().starts_with(b".");
         }
-        None => false,
+        _ => false,
     }
 }
 
@@ -694,16 +689,14 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::changed>()
                 );
                 println!("{:->120}", "");
-                similar::algorithms::lcs::diff(
-                    &mut DiffPrinter {
-                        expected: &expected,
-                        output: &output,
-                    },
-                    expected.as_bytes(),
-                    0..expected.len(),
-                    output.as_bytes(),
-                    0..output.len(),
-                ).unwrap();
+                for (tag, s) in similar::utils::diff_chars(similar::Algorithm::Patience, &expected, &output) {
+                    use owo_colors::OwoColorize;
+                    match tag {
+                        similar::ChangeTag::Equal => print!("{}", s.bright_black()),
+                        similar::ChangeTag::Delete => print!("{}", s.red().strikethrough()),
+                        similar::ChangeTag::Insert => print!("{}", s.green().underline()),
+                    }
+                }
                 println!("{:=>120}", "");
             }
             TestResult::Fail { expected: _, error } => {
@@ -863,59 +856,4 @@ impl Ord for HeapItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.item.cmp(&other.item)
     }
-}
-
-struct DiffPrinter<'a> {
-    expected: &'a str,
-    output: &'a str,
-}
-
-impl similar::algorithms::DiffHook for DiffPrinter<'_> {
-    type Error = core::convert::Infallible;
-    
-    fn equal(&mut self, old: usize, _new: usize, len: usize) -> Result<(), Self::Error> {
-        use owo_colors::OwoColorize;
-        print!("{}", (&self.expected[old..][..len]).bright_black());
-        Ok(())
-    }
-    
-    fn delete(
-        &mut self,
-        old: usize,
-        len: usize,
-        _new_index: usize,
-    ) -> Result<(), Self::Error> {
-        use owo_colors::OwoColorize;
-        print!("{}", (&self.expected[old..][..len]).red().strikethrough());
-        Ok(())
-    }
-    
-    fn insert(
-        &mut self,
-        _old_index: usize,
-        new: usize,
-        len: usize,
-    ) -> Result<(), Self::Error> {
-        use owo_colors::OwoColorize;
-        print!("{}", (&self.output[new..][..len]).green().underline());
-        Ok(())
-    }
-    
-    // fn replace(
-    //     &mut self,
-    //     old_index: usize,
-    //     old_len: usize,
-    //     new_index: usize,
-    //     new_len: usize,
-    // ) -> Result<(), Self::Error> {
-    //     self.delete(old_index, old_len, new_index)?;
-    //     self.insert(old_index, new_index, new_len)
-    // }
-    
-    fn finish(&mut self) -> Result<(), Self::Error> {
-        std::io::stdout().flush().unwrap();
-        Ok(())
-    }
-
-    
 }
