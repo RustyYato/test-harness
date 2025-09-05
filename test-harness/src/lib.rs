@@ -694,19 +694,16 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::changed>()
                 );
                 println!("{:->120}", "");
-                diffs::patience::diff(
+                similar::algorithms::lcs::diff(
                     &mut DiffPrinter {
                         expected: &expected,
                         output: &output,
                     },
                     expected.as_bytes(),
-                    0,
-                    expected.len(),
+                    0..expected.len(),
                     output.as_bytes(),
-                    0,
-                    output.len(),
-                )
-                .unwrap_or_else(|inf| match inf {});
+                    0..output.len(),
+                ).unwrap();
                 println!("{:=>120}", "");
             }
             TestResult::Fail { expected: _, error } => {
@@ -873,29 +870,52 @@ struct DiffPrinter<'a> {
     output: &'a str,
 }
 
-impl diffs::Diff for DiffPrinter<'_> {
+impl similar::algorithms::DiffHook for DiffPrinter<'_> {
     type Error = core::convert::Infallible;
-
+    
     fn equal(&mut self, old: usize, _new: usize, len: usize) -> Result<(), Self::Error> {
         use owo_colors::OwoColorize;
         print!("{}", (&self.expected[old..][..len]).bright_black());
         Ok(())
     }
-
-    fn delete(&mut self, old: usize, len: usize, _new: usize) -> Result<(), Self::Error> {
+    
+    fn delete(
+        &mut self,
+        old: usize,
+        len: usize,
+        _new_index: usize,
+    ) -> Result<(), Self::Error> {
         use owo_colors::OwoColorize;
         print!("{}", (&self.expected[old..][..len]).red().strikethrough());
         Ok(())
     }
-
-    fn insert(&mut self, _old: usize, new: usize, new_len: usize) -> Result<(), Self::Error> {
+    
+    fn insert(
+        &mut self,
+        _old_index: usize,
+        new: usize,
+        len: usize,
+    ) -> Result<(), Self::Error> {
         use owo_colors::OwoColorize;
-        print!("{}", (&self.output[new..][..new_len]).green().underline());
+        print!("{}", (&self.output[new..][..len]).green().underline());
         Ok(())
     }
-
+    
+    // fn replace(
+    //     &mut self,
+    //     old_index: usize,
+    //     old_len: usize,
+    //     new_index: usize,
+    //     new_len: usize,
+    // ) -> Result<(), Self::Error> {
+    //     self.delete(old_index, old_len, new_index)?;
+    //     self.insert(old_index, new_index, new_len)
+    // }
+    
     fn finish(&mut self) -> Result<(), Self::Error> {
         std::io::stdout().flush().unwrap();
         Ok(())
     }
+
+    
 }
