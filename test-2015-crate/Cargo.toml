@@ -1,0 +1,15 @@
+[package]
+name = "test-2015-crate"
+version = "0.1.0"
+edition = "2015"
+
+[dependencies]
+
+[dev-dependencies]
+linkme = "0.3.33"
+serde_json = "1.0.143"
+test-harness.path = "../test-harness"
+
+[[test]]
+name = "run_test"
+harness = false

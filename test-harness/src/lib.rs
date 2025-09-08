@@ -43,7 +43,7 @@ pub struct Opts {
     pub level: Option<tracing::level_filters::LevelFilter>,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum BacktraceStyle {
     Disabled,
     #[default]
@@ -84,6 +84,12 @@ impl Opts {
                 BacktraceStyle::Disabled
             },
             level: None,
+        }
+    }
+
+    pub fn with_backtrace_style(self, style: BacktraceStyle) -> Self {
+        Self {
+            backtrace_style: style, ..self
         }
     }
 }
@@ -825,23 +831,27 @@ pub fn run_tests(opts: Opts) -> bool {
 
                                 let Some(name) = sym.name() else { continue };
 
-                                if name.as_bytes() == b"rust_begin_unwind" {
+                                if name.as_bytes().starts_with_str("core::panicking::panic_fmt") ||
+                                   name.as_bytes().starts_with_str("std::panicking::begin_panic<")
+                                    {
                                     found_start = true;
                                 }
                             } else {
-                                frames.push(frame.clone());
-
                                 let [sym] = frame.symbols() else { continue };
 
                                 let Some(name) = sym.name() else { continue };
 
-                                if name.as_bytes().contains_str("test_harness_run_test") {
+                                if name.as_bytes().contains_str("test_harness::") {
                                     break;
+                                }
+                                
+                                if name.as_bytes() == b"core::panicking::panic" {
+                                    frames.clear();
+                                }  else {
+                                    frames.push(frame.clone());
                                 }
                             }
                         }
-
-                        frames.pop();
 
                         if found_start {
                             backtrace = Backtrace::from(frames);
