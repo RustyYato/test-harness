@@ -195,14 +195,14 @@ impl Serializer for &mut TestSerializer {
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        Ok(())
+        self.serialize_unit_variant("Option", 0, "None")
     }
 
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + serde::Serialize,
     {
-        self.serialize_newtype_variant("Option", 1, "Some", value)
+        value.serialize(self)
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
