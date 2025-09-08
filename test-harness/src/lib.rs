@@ -761,7 +761,7 @@ pub fn run_tests(opts: Opts) -> bool {
                 );
                 println!("{:->120}", "");
                 for (tag, s) in
-                    similar::utils::diff_chars(similar::Algorithm::Patience, &expected, &output)
+                    similar::utils::diff_chars(similar::Algorithm::Myers, &expected, &output)
                 {
                     use owo_colors::OwoColorize;
                     match tag {
