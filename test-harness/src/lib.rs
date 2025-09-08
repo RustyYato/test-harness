@@ -1,14 +1,16 @@
+#![cfg_attr(feature = "nightly", feature(thread_spawn_hook))]
+
 use std::{
     any::{Any, TypeId},
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{BinaryHeap, LinkedList},
     ffi::OsStr,
     fmt::Display,
-    io,
+    io::{self, Write},
     marker::PhantomData,
     panic::{RefUnwindSafe, UnwindSafe},
     path::{Path, PathBuf},
-    sync::{Mutex, PoisonError},
+    sync::{Arc, Mutex, PoisonError},
 };
 
 use bstr::ByteSlice;
@@ -32,12 +34,13 @@ macro_rules! test_corpus {
     };
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Opts {
-    save_new: bool,
-    save_changed: bool,
-    backtrace_style: BacktraceStyle,
-    filter: Option<String>,
+    pub save_new: bool,
+    pub save_changed: bool,
+    pub backtrace_style: BacktraceStyle,
+    pub filter: Option<String>,
+    pub level: Option<tracing::level_filters::LevelFilter>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -80,6 +83,7 @@ impl Opts {
             } else {
                 BacktraceStyle::Disabled
             },
+            level: None,
         }
     }
 }
@@ -525,6 +529,33 @@ impl TestStorage {
 
 thread_local! {
     static PANIC_INFO: Cell<(String, Option<Backtrace>)> = const { Cell::new((String::new(), None)) };
+    static TEST_LOGS: RefCell<Arc<Mutex<Vec<u8>>>> = RefCell::new(Arc::new(Mutex::new(Vec::new())));
+    static IS_TEST_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+struct TestWriter;
+
+impl TestWriter {
+    fn take_logs() -> Vec<u8> {
+        TEST_LOGS.with_borrow(|x| {
+            core::mem::take(&mut *x.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+        })
+    }
+}
+
+impl std::io::Write for TestWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        TEST_LOGS.with_borrow(|x| {
+            x.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(buf)
+        });
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub fn main() -> ! {
@@ -534,6 +565,34 @@ pub fn main() -> ! {
 
 #[must_use]
 pub fn run_tests(opts: Opts) -> bool {
+    let fmt = tracing_subscriber::fmt()
+        // .with_max_level(opts.subscriber.level)
+        .with_level(true)
+        .with_ansi(true)
+        .with_thread_names(true)
+        .with_writer(move || TestWriter);
+
+    if let Some(level) = opts.level {
+        fmt.with_max_level(level).init();
+    } else {
+        fmt.with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
+    }
+
+    #[cfg(feature = "nightly")]
+    {
+        // if we are currently in a test-thread, then all child threads should also log
+        // to the same point, so all logs can be shown together
+        std::thread::add_spawn_hook(|_thread| {
+            let is_test_thread = IS_TEST_THREAD.get();
+            let logs = TEST_LOGS.with_borrow(Arc::clone);
+            move || {
+                if is_test_thread {
+                    TEST_LOGS.set(logs.clone());
+                }
+            }
+        });
+    }
+
     let mut storage = TestStorage {
         current_index: 0,
         tests: Vec::new(),
@@ -563,74 +622,86 @@ pub fn run_tests(opts: Opts) -> bool {
 
     print!("\n    ");
 
-    let (all_results, counts) = storage
-        .tests
-        .into_par_iter()
-        .map(|(corpus_index, test)| {
-            let name = test.name();
+    let (all_results, counts) = rayon::ThreadPoolBuilder::new()
+        .start_handler(|_| IS_TEST_THREAD.set(true))
+        .exit_handler(|_| IS_TEST_THREAD.set(false))
+        .thread_name(|id| format!("test-harness-{id}"))
+        .build()
+        .unwrap()
+        .scope(|_| {
+            storage
+                .tests
+                .into_par_iter()
+                .map(|(corpus_index, test)| {
+                    let name = test.name();
 
-            let corpus = TEST_CORPUSES[corpus_index];
+                    let corpus = TEST_CORPUSES[corpus_index];
 
-            #[inline(never)]
-            fn test_harness_run_test<R>(
-                f: impl FnOnce() -> R + UnwindSafe,
-            ) -> std::thread::Result<R> {
-                std::panic::catch_unwind(f)
-            }
-
-            let x = match test_harness_run_test(|| test.run(corpus, &opts)) {
-                Ok(err) => err,
-                Err(_) => {
-                    let (message, backtrace) =
-                        PANIC_INFO.with(|x| x.replace((String::new(), None)));
-                    TestResult::Panicked { message, backtrace }
-                }
-            };
-
-            (corpus_index, name, x)
-        })
-        .fold(
-            || (Vec::new(), Counts::empty()),
-            |(mut results, mut counts), (corpus_index, name, result)| {
-                let new_counts = result.kind().counts();
-
-                {
-                    let progress = &mut *mutex.lock().unwrap_or_else(PoisonError::into_inner);
-
-                    *progress += 1;
-
-                    new_counts.print_progress();
-
-                    if *progress == 50 {
-                        println!("    ");
+                    #[inline(never)]
+                    fn test_harness_run_test<R>(
+                        f: impl FnOnce() -> R + UnwindSafe,
+                    ) -> std::thread::Result<R> {
+                        std::panic::catch_unwind(f)
                     }
-                }
 
-                counts += new_counts;
+                    let x = match test_harness_run_test(|| test.run(corpus, &opts)) {
+                        Ok(err) => err,
+                        Err(_) => {
+                            let (message, backtrace) =
+                                PANIC_INFO.with(|x| x.replace((String::new(), None)));
+                            TestResult::Panicked { message, backtrace }
+                        }
+                    };
 
-                if !matches!(result.kind(), TestResultKind::Pass | TestResultKind::Skip) {
-                    results.push(Item {
-                        corpus_index,
-                        name,
-                        test_result: result,
-                    });
-                }
+                    let logs = TestWriter::take_logs();
 
-                (results, counts)
-            },
-        )
-        .map(|(mut results, counts)| {
-            results.sort();
-            (LinkedList::from_iter([results]), counts)
-        })
-        .reduce(
-            || (LinkedList::new(), Counts::empty()),
-            |(mut left_results, mut left_counts), (right_results, right_counts)| {
-                left_results.append(&mut { right_results });
-                left_counts += right_counts;
-                (left_results, left_counts)
-            },
-        );
+                    (corpus_index, name, x, logs)
+                })
+                .fold(
+                    || (Vec::new(), Counts::empty()),
+                    |(mut results, mut counts), (corpus_index, name, result, logs)| {
+                        let new_counts = result.kind().counts();
+
+                        {
+                            let progress =
+                                &mut *mutex.lock().unwrap_or_else(PoisonError::into_inner);
+
+                            *progress += 1;
+
+                            new_counts.print_progress();
+
+                            if *progress == 50 {
+                                println!("    ");
+                            }
+                        }
+
+                        counts += new_counts;
+
+                        if !matches!(result.kind(), TestResultKind::Pass | TestResultKind::Skip) {
+                            results.push(Item {
+                                corpus_index,
+                                name,
+                                test_result: result,
+                                logs,
+                            });
+                        }
+
+                        (results, counts)
+                    },
+                )
+                .map(|(mut results, counts)| {
+                    results.sort();
+                    (LinkedList::from_iter([results]), counts)
+                })
+                .reduce(
+                    || (LinkedList::new(), Counts::empty()),
+                    |(mut left_results, mut left_counts), (right_results, right_counts)| {
+                        left_results.append(&mut { right_results });
+                        left_counts += right_counts;
+                        (left_results, left_counts)
+                    },
+                )
+        });
 
     println!();
 
@@ -689,7 +760,9 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::changed>()
                 );
                 println!("{:->120}", "");
-                for (tag, s) in similar::utils::diff_chars(similar::Algorithm::Patience, &expected, &output) {
+                for (tag, s) in
+                    similar::utils::diff_chars(similar::Algorithm::Patience, &expected, &output)
+                {
                     use owo_colors::OwoColorize;
                     match tag {
                         similar::ChangeTag::Equal => print!("{}", s.bright_black()),
@@ -779,6 +852,12 @@ pub fn run_tests(opts: Opts) -> bool {
                 } else {
                     println!("Backtrace is disabled, turn on RUST_BACKTRACE=1 to enable backtraces in tests")
                 }
+
+                if !item.logs.is_empty() {
+                    println!("{0:=<37} LOGS {0:=<37}", "");
+                    let _ = std::io::stdout().write_all(&item.logs);
+                    println!("{:=<80}", "");
+                }
             }
         }
     }
@@ -808,6 +887,7 @@ struct Item {
     corpus_index: usize,
     name: String,
     test_result: TestResult,
+    logs: Vec<u8>,
 }
 
 struct HeapItem {
