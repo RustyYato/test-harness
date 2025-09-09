@@ -89,7 +89,8 @@ impl Opts {
 
     pub fn with_backtrace_style(self, style: BacktraceStyle) -> Self {
         Self {
-            backtrace_style: style, ..self
+            backtrace_style: style,
+            ..self
         }
     }
 }
@@ -97,7 +98,7 @@ impl Opts {
 #[linkme::distributed_slice]
 pub static TEST_CORPUSES: [&dyn TestCorpus] = [..];
 
-pub trait TestCorpus: Any + Send + Sync + RefUnwindSafe {
+pub trait TestCorpus: Any + Sync + RefUnwindSafe {
     fn name(&self) -> &dyn Display;
 
     fn load_tests(&self, storage: &mut TestStorage);
@@ -310,7 +311,7 @@ pub fn is_hidden_dir(path: &Path) -> bool {
     }
 }
 
-pub trait PathTestRunner: 'static + Send + Sync + RefUnwindSafe {
+pub trait PathTestRunner: 'static + Sync + RefUnwindSafe {
     fn should_skip_directory(&self, path: &Path) -> bool {
         is_hidden_dir(path)
     }
@@ -581,7 +582,8 @@ pub fn run_tests(opts: Opts) -> bool {
     if let Some(level) = opts.level {
         fmt.with_max_level(level).init();
     } else {
-        fmt.with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
+        fmt.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
     }
 
     #[cfg(feature = "nightly")]
@@ -826,32 +828,42 @@ pub fn run_tests(opts: Opts) -> bool {
                         let mut found_start = false;
                         let mut frames = Vec::new();
                         for frame in backtrace.frames() {
-                            if !found_start {
-                                let [sym] = frame.symbols() else { continue };
+                            let [sym] = frame.symbols() else { continue };
 
-                                let Some(name) = sym.name() else { continue };
+                            let Some(name) = sym.name() else { continue };
 
-                                if name.as_bytes().starts_with_str("core::panicking::panic_fmt") ||
-                                   name.as_bytes().starts_with_str("std::panicking::begin_panic<")
-                                    {
-                                    found_start = true;
-                                }
-                            } else {
-                                let [sym] = frame.symbols() else { continue };
+                            // On all editions, the bulk of the panic formatting machinery is before
+                            // the `core::panicking::panic_fmt` or `std::panicking::begin_panic<..>` symbols
+                            // On 2015 <= edition < 2021 all of the panic formatting machinery
+                            // is before these symbols
+                            if name
+                                .as_bytes()
+                                .starts_with_str("core::panicking::panic_fmt")
+                                || name
+                                    .as_bytes()
+                                    .starts_with_str("std::panicking::begin_panic<")
+                            {
+                                found_start = true;
+                                continue;
+                            }
 
-                                let Some(name) = sym.name() else { continue };
+                            // on 2021 <= edition, then the panic formatting machinery actually ends with
+                            // core::panicking::panic, so we look for this symbol and ignore everything before it
+                            if name.as_bytes() == b"core::panicking::panic" {
+                                frames.clear();
+                                continue;
+                            } else if found_start {
+                                // after we have started the panic, we know that we are not in any user-defined code if we see
 
                                 if name.as_bytes().contains_str("test_harness::") {
                                     break;
                                 }
-                                
-                                if name.as_bytes() == b"core::panicking::panic" {
-                                    frames.clear();
-                                }  else {
-                                    frames.push(frame.clone());
-                                }
+
+                                frames.push(frame.clone());
                             }
                         }
+
+                        assert!(!frames.is_empty());
 
                         if found_start {
                             backtrace = Backtrace::from(frames);
