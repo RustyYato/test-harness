@@ -832,30 +832,27 @@ pub fn run_tests(opts: Opts) -> bool {
 
                             let Some(name) = sym.name() else { continue };
 
+                            let name = format!("{name}");
+
                             // On all editions, the bulk of the panic formatting machinery is before
                             // the `core::panicking::panic_fmt` or `std::panicking::begin_panic<..>` symbols
                             // On 2015 <= edition < 2021 all of the panic formatting machinery
                             // is before these symbols
-                            if name
-                                .as_bytes()
-                                .starts_with_str("core::panicking::panic_fmt")
-                                || name
-                                    .as_bytes()
-                                    .starts_with_str("std::panicking::begin_panic<")
+                            // on 2021 <= edition, then the panic formatting machinery actually ends with
+                            // core::panicking::panic, so we look for this symbol and ignore everything before it
+                            if name.as_bytes().contains_str("::panicking::panic")
+                                || name.as_bytes().contains_str("::panicking::begin_panic<")
                             {
+                                frames.clear();
                                 found_start = true;
                                 continue;
                             }
 
-                            // on 2021 <= edition, then the panic formatting machinery actually ends with
-                            // core::panicking::panic, so we look for this symbol and ignore everything before it
-                            if name.as_bytes() == b"core::panicking::panic" {
-                                frames.clear();
-                                continue;
-                            } else if found_start {
+                            if found_start {
                                 // after we have started the panic, we know that we are not in any user-defined code if we see
+                                // test_harness
 
-                                if name.as_bytes().contains_str("test_harness::") {
+                                if name.as_bytes().contains_str("test_harness") {
                                     break;
                                 }
 
@@ -863,7 +860,12 @@ pub fn run_tests(opts: Opts) -> bool {
                             }
                         }
 
-                        assert!(!frames.is_empty());
+                        assert!(
+                            !frames.is_empty(),
+                            "\
+original backtrace
+{backtrace:?}"
+                        );
 
                         if found_start {
                             backtrace = Backtrace::from(frames);
