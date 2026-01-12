@@ -761,23 +761,177 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::created>()
                 );
             }
-            TestResult::Changed { expected, output } => {
+            TestResult::Changed {
+                mut expected,
+                mut output,
+            } => {
                 println!(
                     "[{}] {} changed",
                     corpus.name().fg::<colors::changed>(),
                     item.name.fg::<colors::changed>()
                 );
                 println!("{:->120}", "");
+                let mut equal_lines = None;
+                let mut is_first = true;
+
+                let mut print_equal_lines = |equal_lines: &mut Option<&str>, is_final: bool| {
+                    let Some(equal) = equal_lines else {
+                        return;
+                    };
+
+                    const KEEP_BEFORE: usize = 2;
+                    const KEEP_AFTER: usize = 2;
+
+                    let prefix = if is_first {
+                        is_first = false;
+                        0
+                    } else {
+                        equal
+                            .bytes()
+                            .enumerate()
+                            .filter(|(_, b)| *b == b'\n')
+                            .nth(KEEP_AFTER + 1)
+                            .map_or(equal.len(), |x| x.0)
+                    };
+
+                    let suffix = if prefix == equal.len() || is_final {
+                        equal.len()
+                    } else {
+                        equal[prefix + 1..]
+                            .bytes()
+                            .enumerate()
+                            .rev()
+                            .filter(|(_, b)| *b == b'\n')
+                            .nth(KEEP_BEFORE)
+                            .map_or(prefix, |x| x.0 + prefix + 1)
+                    };
+
+                    print!("{}", (&equal[..prefix]).bright_black());
+                    if prefix != suffix {
+                        print!(
+                            "{}{}",
+                            if prefix == 0 { "" } else { "\n" },
+                            format_args!(
+                                "... skipped {} lines ...",
+                                equal[prefix..suffix]
+                                    .bytes()
+                                    .filter(|b| *b == b'\n')
+                                    .count()
+                                    // FIXME: these magic numbers need justification!
+                                    + 1
+                                    - if is_final { 2 } else { 0 }
+                            )
+                            .bright_black()
+                            .bold()
+                        );
+                    }
+                    print!("{}", (&equal[suffix..]).bright_black());
+                    if is_final {
+                        println!()
+                    }
+
+                    // if is_final {
+                    //     let last_newline = equal.rfind('\n').unwrap_or(0);
+                    //     let (mut equal, _b) = equal.split_at(last_newline);
+
+                    //     let mut n = KEEP_AFTER + 1;
+                    //     while let Some((line, e)) = equal.split_once('\n') {
+                    //         if n == 0 {
+                    //             break;
+                    //         }
+                    //         n -= 1;
+                    //         println!("{}", line.bright_black());
+                    //         equal = e;
+                    //     }
+
+                    //     let count = equal
+                    //         .bytes()
+                    //         .filter(|x| *x == b'\n')
+                    //         .count()
+                    //         .saturating_sub(KEEP_AFTER);
+
+                    //     if count > 0 {
+                    //         println!(
+                    //             "{}",
+                    //             format_args!("... skipped {count} lines ...")
+                    //                 .bright_black()
+                    //                 .bold()
+                    //         );
+                    //     }
+                    // } else {
+                    //     let last_newline = equal.rfind('\n').unwrap_or(0);
+                    //     let (equal, b) = equal.split_at(last_newline);
+
+                    //     let kept = if is_first {
+                    //         is_first = false;
+                    //         // -1
+                    //         KEEP_BEFORE - 1
+                    //     } else {
+                    //         for equal in equal.split("\n").take(KEEP_AFTER + 1) {
+                    //             println!("{}", equal.bright_black());
+                    //         }
+
+                    //         KEEP_BEFORE + KEEP_AFTER
+                    //     };
+
+                    //     let count = equal
+                    //         .bytes()
+                    //         .filter(|x| *x == b'\n')
+                    //         .count()
+                    //         .saturating_sub(kept);
+
+                    //     if count > 0 {
+                    //         println!(
+                    //             "{}",
+                    //             format_args!("... skipped {count} lines ...")
+                    //                 .bright_black()
+                    //                 .bold()
+                    //         );
+                    //     }
+
+                    //     for equal in Vec::from_iter(equal.rsplit("\n").take(KEEP_BEFORE))
+                    //         .into_iter()
+                    //         .rev()
+                    //     {
+                    //         println!("{}", equal.bright_black());
+                    //     }
+
+                    //     print!("{}", (&b[1..]).bright_black());
+                    // }
+                    *equal_lines = None;
+                };
+
                 for (tag, s) in
                     similar::utils::diff_chars(similar::Algorithm::Myers, &expected, &output)
                 {
                     use owo_colors::OwoColorize;
                     match tag {
-                        similar::ChangeTag::Equal => print!("{}", s.bright_black()),
-                        similar::ChangeTag::Delete => print!("{}", s.red().strikethrough()),
-                        similar::ChangeTag::Insert => print!("{}", s.green().underline()),
+                        similar::ChangeTag::Equal => {
+                            assert!(equal_lines.is_none());
+                            equal_lines = Some(s);
+                        }
+                        similar::ChangeTag::Delete => {
+                            print_equal_lines(&mut equal_lines, false);
+                            print!("{}", s.red().strikethrough())
+                        }
+                        similar::ChangeTag::Insert => {
+                            print_equal_lines(&mut equal_lines, false);
+                            print!("{}", s.green().underline())
+                        }
                     }
                 }
+
+                print_equal_lines(&mut equal_lines, true);
+                // for (tag, s) in
+                //     similar::utils::diff_chars(similar::Algorithm::Myers, &expected, &output)
+                // {
+                //     use owo_colors::OwoColorize;
+                //     match tag {
+                //         similar::ChangeTag::Equal => print!("{}", s.bright_black()),
+                //         similar::ChangeTag::Delete => print!("{}", s.red().strikethrough()),
+                //         similar::ChangeTag::Insert => print!("{}", s.green().underline()),
+                //     }
+                // }
                 println!("{:=>120}", "");
             }
             TestResult::Fail { expected: _, error } => {
