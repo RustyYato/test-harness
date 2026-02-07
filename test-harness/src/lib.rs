@@ -932,6 +932,11 @@ pub fn run_tests(opts: Opts) -> bool {
                 //         similar::ChangeTag::Insert => print!("{}", s.green().underline()),
                 //     }
                 // }
+
+                if !item.logs.is_empty() {
+                    println!("{0:=<57} LOGS {0:=<57}", "");
+                    let _ = std::io::stdout().write_all(&item.logs);
+                }
                 println!("{:=>120}", "");
             }
             TestResult::Fail { expected: _, error } => {
@@ -941,6 +946,12 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::failed>()
                 );
                 println!("{error}");
+
+                if !item.logs.is_empty() {
+                    println!("{0:=<37} LOGS {0:=<37}", "");
+                    let _ = std::io::stdout().write_all(&item.logs);
+                    println!("{:=<80}", "");
+                }
             }
             TestResult::CouldNotRun { error } => {
                 println!(
@@ -949,6 +960,12 @@ pub fn run_tests(opts: Opts) -> bool {
                     item.name.fg::<colors::no_run>()
                 );
                 println!("{error}");
+
+                if !item.logs.is_empty() {
+                    println!("{0:=<37} LOGS {0:=<37}", "");
+                    let _ = std::io::stdout().write_all(&item.logs);
+                    println!("{:=<80}", "");
+                }
             }
             TestResult::New { output } => {
                 println!(
@@ -959,7 +976,12 @@ pub fn run_tests(opts: Opts) -> bool {
 
                 println!("{:->120}", "");
                 println!("{output}");
-                println!("{:=>120}", "");
+
+                if !item.logs.is_empty() {
+                    println!("{0:=<57} LOGS {0:=<57}", "");
+                    let _ = std::io::stdout().write_all(&item.logs);
+                }
+                println!("{:=<120}", "");
             }
             TestResult::Skip => {
                 println!(
